@@ -1,0 +1,2 @@
+g++ -std=c++14 lattice.cpp -o lattice
+./lattice
