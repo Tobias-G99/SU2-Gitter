@@ -46,7 +46,7 @@ int N_cor=10;
 //Anzahl an übersprungenen berechneten Observablen beim Start (N_ini*(N_cf+1) Sweeps werden übersprungen)
 int N_ini=10;
 //Anzahl an erstellten Bootstraps zur Bestimmung des statistischen Fehlers
-int N_bt=200;
+int N_bt=100;
 
 //ENDE VERÄNDERBARE VARIABLEN
 
@@ -138,10 +138,23 @@ complex<double>* rescale_su2(complex<double>* matrix){
 }
 
 /*
-Erzeugt eine Matrix in der Nähe der Identität, nähert cos(a)=1-a^2/2 & sin(a)=a
+Erzeugt eine Drehmatrix in der Nähe der Identität
 */
 complex<double>* set_close_to_identity(complex<double>* matrix){
 	double alpha=uniform(0.,delta);
+	double u=uniform(-1.,1.);
+	double theta=uniform(0., 2.*pi);
+	matrix[0]=cos(alpha)+1i*sin(alpha)*u;											//cos(a)+isin(a)n_3
+	matrix[1]=sin(alpha)*(sqrt(1-u*u)*sin(theta)+1i*sqrt(1-u*u)*cos(theta));		//sin(a)(n_2+in_1)
+	rescale_su2(matrix);
+	return matrix;
+}
+
+/*
+Erzeugt eine Drehmatrix
+*/
+complex<double>* set_to_rotation_matrix(complex<double>* matrix){
+	double alpha=uniform(0.,2.*pi);
 	double u=uniform(-1.,1.);
 	double theta=uniform(0., 2.*pi);
 	matrix[0]=cos(alpha)+1i*sin(alpha)*u;											//cos(a)+isin(a)n_3
@@ -391,6 +404,46 @@ double calc_average_plaquette(lattice* lat){
 	return P_av/(12.*len[0]*len[1]*len[2]*len[3]);
 }
 
+lattice* check_for_gauge_invariance(lattice* lat){
+	point***** pts=lat->pts;
+	int* len=lat->len;
+	complex<double>* tmp_matrix=create_identity();
+	int c;
+	//Schleife über alle Punkte in t-Richtung
+	for(int t=0;t<len[0];t++){
+		//Schleife über alle Punkte in x-Richtung
+		for(int x=0;x<len[1];x++){
+			//Schleife über alle Punkte in y-Richtung
+			for(int y=0;y<len[2];y++){
+				//Schleife über alle Punkte in z-Richtung
+				for(int z=0;z<len[3];z++){
+					//Richtung mu
+					set_to_rotation_matrix(tmp_matrix);
+					for(int mu=0;mu<4;mu++){
+						matrix_mul(tmp_matrix,pts[t][x][y][z]->link[mu],pts[t][x][y][z]->link[mu]);
+						if(mu==0){
+							if(t==0) c=len[0]-1; else c=t-1;
+							matrix_mul_adj(pts[c][x][y][z]->link[mu],tmp_matrix,pts[c][x][y][z]->link[mu]);
+						}
+						else if(mu==1){
+							if(x==0) c=len[1]-1; else c=x-1;
+							matrix_mul_adj(pts[t][c][y][z]->link[mu],tmp_matrix,pts[t][c][y][z]->link[mu]);
+						}
+						else if(mu==2){
+							if(y==0) c=len[2]-1; else c=y-1;
+							matrix_mul_adj(pts[t][x][c][z]->link[mu],tmp_matrix,pts[t][x][c][z]->link[mu]);
+						}
+						else{
+							if(z==0) c=len[3]-1; else c=z-1;
+							matrix_mul_adj(pts[t][x][y][c]->link[mu],tmp_matrix,pts[t][x][y][c]->link[mu]);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 /*
 Aktualisiert alle Linkvariablen des Gitter N_hit mal
 */
@@ -446,7 +499,7 @@ void Monte_Carlo(){
 	clock_t timer=clock();
 	int bt;
 	//Deklaration der Observablen
-	double P_av[N_cf]; double wav_P_av[N_bt+1] = {0}; double d_wav_P_av=0;
+	double P_av[N_cf]; double wav_P_av[N_bt] = {0}; double d_wav_P_av=0; double wav_wav_P_av=0;
 	
 	
 	cout << "Initialisiere Gitter..." << endl;
@@ -474,22 +527,35 @@ void Monte_Carlo(){
 
 	}
 	wav_P_av[0]=wav_P_av[0]/N_cf;
+	
+	
 	cout << "Erfolg" << endl;
 	//Ermittelt den statistischen Fehler der Observablen über bootstrap copies
 	cout << "Berechne den statistischen Fehler der Observablen..." << endl;
-	for(int i=0;i<N_bt;i++){
+	wav_wav_P_av+=wav_P_av[0];
+	
+	
+	for(int i=1;i<N_bt;i++){
 		for(int j=0;j<N_cf;j++){
 			bt=(int)uniform(0,N_cf);
-			wav_P_av[i+1]+=P_av[bt];
+			wav_P_av[i]+=P_av[bt];
 			
 			
 		}
-		wav_P_av[i+1]=wav_P_av[i+1]/N_cf;
-		d_wav_P_av+=pow(wav_P_av[i]-wav_P_av[0],2);
+		wav_P_av[i]=wav_P_av[i]/N_cf;
+		wav_wav_P_av+=wav_P_av[i];
 		
 		
 	}
-	d_wav_P_av=sqrt(d_wav_P_av/(N_bt*(N_bt-1)));
+	wav_wav_P_av=wav_wav_P_av/N_bt;
+	
+	
+	for(int i=0;i<N_bt;i++){
+		d_wav_P_av+=pow(wav_P_av[i]-wav_wav_P_av,2);
+		
+		
+	}
+	d_wav_P_av=sqrt(d_wav_P_av/(N_bt-1));
 	
 	
 	cout << "Erfolg" << endl;
@@ -501,6 +567,10 @@ void Monte_Carlo(){
 	file << wav_P_av[0] << " " <<d_wav_P_av << endl;
 	
 	
+	cout << endl;
+	cout << calc_average_plaquette(lat) << endl;
+	check_for_gauge_invariance(lat);
+	cout << calc_average_plaquette(lat) << endl;
 	free_lattice(lat);
 	cout << "Programm nach " << (clock()-timer)/(double) CLOCKS_PER_SEC <<" Sekunden beendet." << endl;
 }
