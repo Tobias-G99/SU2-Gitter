@@ -11,6 +11,7 @@ Die Kompilation sollte mit dem Zusatzbefehl -std=c++14 durchgeführt werden
 //BEGINN DER BIBLIOTHEKEN
 
 #include <iostream>
+#include <fstream>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,11 +30,11 @@ using namespace std;
 //BEGINN VERÄNDERBARER VARIABLEN
 
 //Anzahl der Gitterpunkte in die Zeitrichtung
-int N_t=10;
+int N_t=4;
 //Anzahl der Gitterpunkte in Raumrichtungen
-int N_s=20;
+int N_s=4;
 //Maximalen Drehwinkel bei der Erzeugung der SU2-Matrix nahe der Einheitsmatrix. Größerer Wert liefert kleinere Akzeptanz. Es sollte eine Akzeptanz zwischen 40%-60% angestrebt werden
-double delta=0.25;
+double delta=0.95;
 //Inverse Eichkopplungskonstante
 double beta=2.3;
 //Aktualisierungen des Links innerhalb eines Metropolis Sweeps
@@ -41,9 +42,11 @@ int N_hit=10;
 //Anzahl an ermittelten Werten der Observable
 int N_cf=20;
 //Anzahl der übersprungenen Sweeps bevor ein Wert zur Observable gespeichert wird
-int N_cor=4;
+int N_cor=10;
 //Anzahl an übersprungenen berechneten Observablen beim Start (N_ini*(N_cf+1) Sweeps werden übersprungen)
-int N_ini=4;
+int N_ini=10;
+//Anzahl an erstellten Bootstraps zur Bestimmung des statistischen Fehlers
+int N_bt=200;
 
 //ENDE VERÄNDERBARE VARIABLEN
 
@@ -108,8 +111,8 @@ complex<double>* matrix_mul(complex<double>* matrix1, complex<double>* matrix2, 
 Multipliziert zwei 2x2 Matrizen, wobei jedoch die zweite Matrix adjungiert wird
 */
 complex<double>* matrix_mul_adj(complex<double>* matrix1, complex<double>* matrix2, complex<double>* dest){
-	complex<double> a=matrix1[0]*conj(matrix2[0])+matrix1[1]*conj(matrix2[1]); //u=ac*+bd*
-	complex<double> b=-matrix1[0]*matrix2[1]+matrix1[1]*matrix2[0]; //v=-ad+bc
+	complex<double> a=matrix1[0]*conj(matrix2[0])+matrix1[1]*conj(matrix2[1]);  //u=ac*+bd*
+	complex<double> b=-matrix1[0]*matrix2[1]+matrix1[1]*matrix2[0]; 			//v=-ad+bc
 	dest[0]=a; dest[1]=b;
 	return dest;
 }
@@ -141,8 +144,8 @@ complex<double>* set_close_to_identity(complex<double>* matrix){
 	double alpha=uniform(0.,delta);
 	double u=uniform(-1.,1.);
 	double theta=uniform(0., 2.*pi);
-	matrix[0]=1.-alpha*alpha/2.+1i*alpha*u;											//cos(a)+isin(a)n_3
-	matrix[1]=alpha*(sqrt(1-u*u)*theta+1i*(sqrt(1-u*u)*(1-theta*theta/2.)));		//sin(a)(n_2+in_1)
+	matrix[0]=cos(alpha)+1i*sin(alpha)*u;											//cos(a)+isin(a)n_3
+	matrix[1]=sin(alpha)*(sqrt(1-u*u)*sin(theta)+1i*sqrt(1-u*u)*cos(theta));		//sin(a)(n_2+in_1)
 	rescale_su2(matrix);
 	return matrix;
 }
@@ -305,7 +308,7 @@ complex<double>* calc_staple(lattice* lat, complex<double>* K, int t, int x, int
 			matrix_mul_adj(tmp_matrix,pts[tc[0]][tc[1]][tc[2]][tc[3]]->link[nu],tmp_matrix);	//U^+_nu(x+a (mu-nu))
 			tc[mu]=c[mu];																		//x-a nu
 			matrix_mul_adj(tmp_matrix,pts[tc[0]][tc[1]][tc[2]][tc[3]]->link[mu],tmp_matrix);	//U^+_mu(x-a nu)
-			matrix_mul(tmp_matrix,pts[tc[0]][tc[1]][tc[2]][tc[3]]->link[nu],tmp_matrix);		//U(x-a nu)
+			matrix_mul(tmp_matrix,pts[tc[0]][tc[1]][tc[2]][tc[3]]->link[nu],tmp_matrix);		//U_nu(x-a nu)
 			K[0]+=tmp_matrix[0]; K[1]+=tmp_matrix[1];
 			tc[nu]=c[nu];																		//x
 		}
@@ -385,7 +388,7 @@ double calc_average_plaquette(lattice* lat){
 		}
 	}
 	free(tmp_matrix);
-	return P_av/(48.*len[0]*len[1]*len[2]*len[3]);
+	return P_av/(12.*len[0]*len[1]*len[2]*len[3]);
 }
 
 /*
@@ -395,6 +398,7 @@ lattice* Metropolis_sweep(lattice* lat){
 	complex<double>* tmp_matrix=create_identity();
 	complex<double>* K = create_identity();			//Staple zum Punkt in Richtung mu
 	int accepted=0; int runs=0;
+	double r; double delta_S;
 	point***** pts=lat->pts; int* len=lat->len;
 	//Schleife über alle Punkte in t-Richtung
 	for(int t=0;t<len[0];t++){
@@ -412,9 +416,9 @@ lattice* Metropolis_sweep(lattice* lat){
 							set_close_to_identity(tmp_matrix);
 							matrix_mul(pts[t][x][y][z]->link[mu],tmp_matrix,tmp_matrix);
 							rescale_su2(tmp_matrix);
-							double delta_S=calc_delta_S(tmp_matrix,pts[t][x][y][z]->link[mu],K);
-							double r=uniform(0.,1.);
-							if((r<exp(-delta_S))){
+							delta_S=calc_delta_S(tmp_matrix,pts[t][x][y][z]->link[mu],K);
+							r=uniform(0.,1.);
+							if(r<exp(-delta_S)){
 								pts[t][x][y][z]->link[mu][0]=tmp_matrix[0];
 								pts[t][x][y][z]->link[mu][1]=tmp_matrix[1];
 								accepted++;
@@ -440,11 +444,15 @@ Berechnet den Mittelwert einer Observable nach dem Monte-Carlo Verfahren mit Hil
 */
 void Monte_Carlo(){
 	clock_t timer=clock();
-	double observable[N_cf];
-	double estimate=0; double d_estimate=0;
+	int bt;
+	//Deklaration der Observablen
+	double P_av[N_cf]; double wav_P_av[N_bt+1] = {0}; double d_wav_P_av=0;
+	
+	
 	cout << "Initialisiere Gitter..." << endl;
 	lattice* lat=initialize_lattice(N_t,N_s,N_s,N_s);
 	cout << "Erfolg" << endl;
+	//Überspringt N_ini*N_cor+1 Sweeps
 	cout << "Thermalisiere Gitter..." << endl;
 	for(int i=0;i<N_ini;i++){
 		if(i%((int)ceil(N_ini/10.))==0) cout << (double)i*100./N_ini << "%" << endl;
@@ -453,21 +461,46 @@ void Monte_Carlo(){
 		}
 	}
 	cout << "Erfolg" << endl;
-	cout << "Berechne Werte der Observable..." << endl;
+	//Berechnung der Observablen nach jeweils N_cf*N_cor+1 Sweeps
+	cout << "Berechne Werte der Observablen..." << endl;
 	for(int i=0;i<N_cf;i++){
+		if(i%((int)ceil(N_cf/10.))==0) cout << (double)i*100./N_cf << "%" << endl;
 		for(int j=0;j<N_cor+1;j++){
 			Metropolis_sweep(lat);
 		}
-		observable[i]=calc_average_plaquette(lat);
-		cout << observable[i] << endl;
-		estimate+=observable[i];
+		P_av[i]=calc_average_plaquette(lat);
+		wav_P_av[0]+=P_av[i];
+		
+
 	}
-	estimate=estimate/N_cf;
-	for(int i=0;i<N_cf;i++){
-		d_estimate+=pow(observable[i]-estimate,2);
+	wav_P_av[0]=wav_P_av[0]/N_cf;
+	cout << "Erfolg" << endl;
+	//Ermittelt den statistischen Fehler der Observablen über bootstrap copies
+	cout << "Berechne den statistischen Fehler der Observablen..." << endl;
+	for(int i=0;i<N_bt;i++){
+		for(int j=0;j<N_cf;j++){
+			bt=(int)uniform(0,N_cf);
+			wav_P_av[i+1]+=P_av[bt];
+			
+			
+		}
+		wav_P_av[i+1]=wav_P_av[i+1]/N_cf;
+		d_wav_P_av+=pow(wav_P_av[i]-wav_P_av[0],2);
+		
+		
 	}
-	d_estimate=sqrt(d_estimate/(N_cf*(N_cf-1)));
-	cout << "Mittelwert: " << estimate << " +/- " << d_estimate << endl;
+	d_wav_P_av=sqrt(d_wav_P_av/(N_bt*(N_bt-1)));
+	
+	
+	cout << "Erfolg" << endl;
+	//Ausgabe
+	ofstream file;
+	file.open("Observablen.txt");
+	file << "P_av" << " " << "d_P_av" << endl;
+	//Speichern der Observablen in der txt Datei "Observablen.txt"
+	file << wav_P_av[0] << " " <<d_wav_P_av << endl;
+	
+	
 	free_lattice(lat);
 	cout << "Programm nach " << (clock()-timer)/(double) CLOCKS_PER_SEC <<" Sekunden beendet." << endl;
 }
