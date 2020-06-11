@@ -30,23 +30,25 @@ using namespace std;
 //BEGINN VERÄNDERBARER VARIABLEN
 
 //Anzahl der Gitterpunkte in die Zeitrichtung
-int N_t=4;
+int N_t;
 //Anzahl der Gitterpunkte in Raumrichtungen
-int N_s=4;
+int N_s;
 //Maximalen Drehwinkel bei der Erzeugung der SU2-Matrix nahe der Einheitsmatrix. Größerer Wert liefert kleinere Akzeptanz. Es sollte eine Akzeptanz zwischen 40%-60% angestrebt werden
-double delta=0.95;
+double delta;
 //Inverse Eichkopplungskonstante
-double beta=2.3;
+double beta;
 //Aktualisierungen des Links innerhalb eines Metropolis Sweeps
-int N_hit=10;
+int N_hit;
 //Anzahl an ermittelten Werten der Observable
-int N_cf=20;
-//Anzahl der übersprungenen Sweeps bevor ein Wert zur Observable gespeichert wird
-int N_cor=10;
-//Anzahl an übersprungenen berechneten Observablen beim Start (N_ini*(N_cf+1) Sweeps werden übersprungen)
-int N_ini=10;
+int N_cf;
+//Anzahl an Sweeps, bis eine Observable gespeichert wird
+int N_cor;
+//Anzahl an übersprungenen berechneten Observablen beim Start, (N_ini*N_cor) Sweeps werden übersprungen
+int N_ini;
+//Bingröße
+int bin_size;
 //Anzahl an erstellten Bootstraps zur Bestimmung des statistischen Fehlers
-int N_bt=100;
+int N_bt;
 
 //ENDE VERÄNDERBARE VARIABLEN
 
@@ -495,13 +497,8 @@ lattice* Metropolis_sweep(lattice* lat){
 /*
 Berechnet den Mittelwert einer Observable nach dem Monte-Carlo Verfahren mit Hilfe des Metropolis Sweeps
 */
-void Monte_Carlo(){
-	clock_t timer=clock();
-	int bt;
-	//Deklaration der Observablen
-	double P_av[N_cf]; double wav_P_av[N_bt] = {0}; double d_wav_P_av=0; double wav_wav_P_av=0;
-	
-	
+double* Monte_Carlo(double (*fnc)(lattice*),double* obs){
+	double tmp_bin;
 	cout << "Initialisiere Gitter..." << endl;
 	lattice* lat=initialize_lattice(N_t,N_s,N_s,N_s);
 	cout << "Erfolg" << endl;
@@ -509,71 +506,131 @@ void Monte_Carlo(){
 	cout << "Thermalisiere Gitter..." << endl;
 	for(int i=0;i<N_ini;i++){
 		if(i%((int)ceil(N_ini/10.))==0) cout << (double)i*100./N_ini << "%" << endl;
-		for(int j=0;j<N_cor+1;j++){
+		for(int j=0;j<N_cor;j++){
 			Metropolis_sweep(lat);
 		}
 	}
 	cout << "Erfolg" << endl;
-	//Berechnung der Observablen nach jeweils N_cf*N_cor+1 Sweeps
+	//Berechnung der Observablen nach jeweils N_cf*N_cor+1 Sweeps, wobei diese zu bin_size großen Bins gemittelt werden
 	cout << "Berechne Werte der Observablen..." << endl;
 	for(int i=0;i<N_cf;i++){
 		if(i%((int)ceil(N_cf/10.))==0) cout << (double)i*100./N_cf << "%" << endl;
-		for(int j=0;j<N_cor+1;j++){
-			Metropolis_sweep(lat);
+		tmp_bin=0;
+		for(int j=0;j<bin_size;j++){
+			for(int k=0;k<N_cor+1;k++){
+				Metropolis_sweep(lat);
+			}
+			tmp_bin+=fnc(lat);
 		}
-		P_av[i]=calc_average_plaquette(lat);
-		wav_P_av[0]+=P_av[i];
-		
-
+		obs[i]=tmp_bin/bin_size;
 	}
-	wav_P_av[0]=wav_P_av[0]/N_cf;
-	
-	
 	cout << "Erfolg" << endl;
-	//Ermittelt den statistischen Fehler der Observablen über bootstrap copies
-	cout << "Berechne den statistischen Fehler der Observablen..." << endl;
-	wav_wav_P_av+=wav_P_av[0];
-	
-	
+	free_lattice(lat);
+	return obs;
+}
+
+/*
+Ermittelt den statistischen Fehler der Observablen über bootstrap copies
+*/
+double calc_error_with_bootstrap(double* obs){
+	int bt;
+	double wav_obs[N_bt]={0}, wav_wav_obs=0, d_wav_obs=0;
+	//Mittelwert
+	for(int i=0;i<N_cf;i++){
+		wav_obs[0]+=obs[i];	
+	}
+	wav_obs[0]=wav_obs[0]/N_cf;
+	wav_wav_obs+=wav_obs[0];
+	//Bootstrap copies
 	for(int i=1;i<N_bt;i++){
 		for(int j=0;j<N_cf;j++){
 			bt=(int)uniform(0,N_cf);
-			wav_P_av[i]+=P_av[bt];
-			
-			
+			wav_obs[i]+=obs[bt];
 		}
-		wav_P_av[i]=wav_P_av[i]/N_cf;
-		wav_wav_P_av+=wav_P_av[i];
-		
-		
+		wav_obs[i]=wav_obs[i]/N_cf;
+		wav_wav_obs+=wav_obs[i];
 	}
-	wav_wav_P_av=wav_wav_P_av/N_bt;
-	
-	
+	wav_wav_obs=wav_wav_obs/N_bt;
+	//Fehler des Mittelwerts
 	for(int i=0;i<N_bt;i++){
-		d_wav_P_av+=pow(wav_P_av[i]-wav_wav_P_av,2);
-		
-		
+		d_wav_obs+=pow(wav_obs[i]-wav_wav_obs,2);
 	}
-	d_wav_P_av=sqrt(d_wav_P_av/(N_bt-1));
+	return sqrt(d_wav_obs/(N_bt-1));
+}
+
+/*
+Berechnet den gemittelten Plaquettewert und gibt zusätzlich die Werte der Monte Carlo History aus
+*/
+void P_av_with_history(){
+	N_t=8;
+	N_s=8;
+	delta=0.95;
+	beta=2.3;
+	N_hit=10;
+	N_cf=20;
+	N_cor=10;
+	N_ini=10;
+	bin_size=1;
+	N_bt=100;
 	
-	
-	cout << "Erfolg" << endl;
+	clock_t timer=clock();
+	//Deklaration der Observablen
+	double P_av[N_cf]; double wav_P_av=0; double d_wav_P_av=0;
+	Monte_Carlo(calc_average_plaquette, &P_av[0]);
+	for(int i=0;i<N_cf;i++){
+		wav_P_av+=P_av[i];	
+	}
+	wav_P_av=wav_P_av/N_cf;
+	d_wav_P_av=calc_error_with_bootstrap(&P_av[0]);
 	//Ausgabe
 	ofstream file;
-	file.open("Observablen.txt");
-	file << "P_av" << " " << "d_P_av" << endl;
+	file.open("P_av.txt");
 	//Speichern der Observablen in der txt Datei "Observablen.txt"
-	file << wav_P_av[0] << " " <<d_wav_P_av << endl;
-	
-	
-	cout << endl;
-	cout << calc_average_plaquette(lat) << endl;
-	check_for_gauge_invariance(lat);
-	cout << calc_average_plaquette(lat) << endl;
-	free_lattice(lat);
-	cout << "Programm nach " << (clock()-timer)/(double) CLOCKS_PER_SEC <<" Sekunden beendet." << endl;
+	file << "P_av = " << wav_P_av << " +/- " <<d_wav_P_av << endl;
+	file << endl;
+	file << "number " << "P_av" << endl;
+	for(int i=0;i<N_cf;i++){
+		file << i+1 << " " << P_av[i] << endl;
+	}
+	cout << "Berechnung des gemittelten Plaquettewert nach " << (clock()-timer)/(double) CLOCKS_PER_SEC <<" Sekunden beendet." << endl;
+	file.close();
 }
+
+void P_av_vs_beta(){
+	N_t=4;
+	N_s=4;
+	delta=0.95;
+	beta=0;
+	N_hit=10;
+	N_cf=20;
+	N_cor=10;
+	N_ini=10;
+	bin_size=1;
+	N_bt=100;
+	
+	double P_av[N_cf]; double wav_P_av=0; double d_wav_P_av=0;
+	//Ausgabe
+	ofstream file;
+	file.open("P_av_vs_beta.txt");
+	//Deklaration der Observablen
+	file << "beta" << " " << "P_av" << " " << "d_P_av" << endl;
+	for(int i=0;i<30;i++){
+		beta+=0.1;
+		clock_t timer=clock();
+		wav_P_av=0; d_wav_P_av=0;
+		Monte_Carlo(calc_average_plaquette, &P_av[0]);
+		for(int i=0;i<N_cf;i++){
+			wav_P_av+=P_av[i];	
+		}
+		wav_P_av=wav_P_av/N_cf;
+		d_wav_P_av=calc_error_with_bootstrap(&P_av[0]);
+		file << beta << " " << wav_P_av << " " << d_wav_P_av << endl;
+		cout << "Berechnung des gemittelten Plaquettewert für beta = " << beta << " nach " << (clock()-timer)/(double) CLOCKS_PER_SEC <<" Sekunden beendet." << endl;
+	}
+	file.close();
+}
+
+
 
 //ENDE DER FUNKTIONEN
 
@@ -582,6 +639,12 @@ void Monte_Carlo(){
 //BEGINN MAIN
 
 int main(){
-	Monte_Carlo();
+	P_av_with_history();
+	//P_av_vs_beta();
 	return 0;
 }
+/*
+cout << calc_average_plaquette(lat) << endl;
+check_for_gauge_invariance(lat);
+cout << calc_average_plaquette(lat) << endl;
+*/
