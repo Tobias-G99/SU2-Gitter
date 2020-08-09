@@ -1,0 +1,11 @@
+N_t=8;
+N_s=12;
+delta=0.95;
+beta=2.3;
+N_hit=20;
+N_cf=40;
+N_cor=40;
+N_ini=10;
+bin_size=10;
+N_bt=10000;
+seed=2000;

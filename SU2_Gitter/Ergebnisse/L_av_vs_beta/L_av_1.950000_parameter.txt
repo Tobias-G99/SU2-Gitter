@@ -1,0 +1,11 @@
+N_t=4
+N_s=8
+beta=1.95
+delta=1.1
+N_cf=1000
+N_ini=10
+N_hit=10
+N_cor=400
+bin_size=1
+N_bt=100000
+seed=47082020
