@@ -1,0 +1,9 @@
+N_t=4
+N_s=8
+N_cf=50
+N_ini=10
+N_hit=20
+N_cor=40
+b_s=10
+N_bt=100000
+seed=60000
