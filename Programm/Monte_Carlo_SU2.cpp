@@ -1,5 +1,15 @@
 /*
-WICHTIG:
+Autor: Tobias Grundmann
+
+Dieses Werk ist unter einer Creative Commons Lizenz
+vom Typ Namensnennung 3.0 Deutschland zugänglich.
+Um eine Kopie dieser Lizenz einzusehen, konsultieren Sie
+http://creativecommons.org/licenses/by/3.0/de/ oder wenden
+Sie sich brieflich an Creative Commons,
+Postfach 1866, Mountain View, California, 94042, USA.
+
+
+
 Alle benutzten Matrizen benutzen den Stil
 array[0]: links oben, array[1]: rechts oben, -conj(array[1]): links unten, conj(array[0]): rechts unten
 
@@ -51,7 +61,7 @@ int b_s;
 //Anzahl an erstellten Bootstraps zur Bestimmung des statistischen Fehlers
 int N_bt;
 //Seed für den Mersenne Twister Pseudo Number Generator
-int seed=5555;
+int seed=1;
 
 //ENDE VERÄNDERBARE VARIABLEN
 
