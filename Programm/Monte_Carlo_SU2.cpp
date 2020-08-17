@@ -510,6 +510,7 @@ lattice* check_for_gauge_invariance(lattice* lat){
 			}
 		}
 	}
+	return lat;
 }
 
 /*

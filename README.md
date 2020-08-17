@@ -19,7 +19,13 @@ Copyright: Creative Commons Lizenz vom Typ Namensnennung 3.0 Deutschland
 
 Kompilierung:
 g++ -std=c++14 Monte_Carlo_SU2.cpp -o Monte_Carlo_SU2
+
+Linux:
 ./Monte_Carlo_SU2
+
+Windows:
+Monte_Carlo_SU2.exe
+
 
 Im Ordner Bilder befinden sich die verwendeten Bilder für die Bachelorarbeit.
 Im Ordner Daten befinden sich die Ausgaben des Programms.
