@@ -20,6 +20,7 @@ Copyright: Creative Commons Lizenz vom Typ Namensnennung 3.0 Deutschland
 Kompilierung:
 g++ -std=c++14 Monte_Carlo_SU2.cpp -o Monte_Carlo_SU2
 
+Befehl zum ausführen:
 Linux:
 ./Monte_Carlo_SU2
 
@@ -27,7 +28,6 @@ Windows:
 Monte_Carlo_SU2.exe
 
 
-Im Ordner Bilder befinden sich die verwendeten Bilder für die Bachelorarbeit.
+Im Ordner Bilder befinden sich die erstellten und verwendeten Bilder für die Bachelorarbeit.
 Im Ordner Daten befinden sich die Ausgaben des Programms.
-Im Ordner Ergebnisse befinden sich die Werte der Datenpunkte aus den Bildern,
-die Namen der Datei und des Bildes sind bis auf die Dateiendung identisch.
+Im Ordner Ergebnisse befinden sich die Werte der Datenpunkte aus den verwendeten Bildern.
